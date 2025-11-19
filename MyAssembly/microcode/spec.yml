@@ -1,0 +1,132 @@
+# Microcode Specification
+# Defines the microcode sequences for each instruction.
+# This YAML file is used to generate the microcode ROM image.
+
+# Control Signal Definitions (bit positions in 16-bit microcode word)
+control_signals:
+  # Bus Control
+  PC_OUT:    0x0001  # Put Program Counter on bus
+  PC_INC:    0x0002  # Increment Program Counter
+  MAR_IN:    0x0004  # Load Memory Address Register
+  RAM_OUT:   0x0008  # Read from RAM to bus
+  RAM_IN:    0x0010  # Write from bus to RAM
+  
+  # Instruction Control
+  IR_IN:     0x0020  # Load Instruction Register
+  IR_OUT:    0x0040  # Put IR data portion on bus
+  
+  # Register Control
+  A_IN:      0x0080  # Load register A
+  A_OUT:     0x0100  # Put register A on bus
+  B_IN:      0x0200  # Load register B
+  B_OUT:     0x0400  # Put register B on bus
+  
+  # ALU Control
+  ALU_OUT:   0x0800  # Put ALU result on bus
+  ALU_SUB:   0x1000  # ALU subtract mode
+  
+  # System Control
+  HALT:      0x2000  # Halt execution
+  FLAGS_IN:  0x4000  # Update flags from ALU
+
+# Microcode sequences for each instruction
+# Each instruction has up to 8 micro-steps (T0-T7)
+instructions:
+  # ===== NOP - No Operation =====
+  0x00:  # NOP
+    name: "NOP"
+    steps:
+      - PC_INC  # Just increment PC
+
+  # ===== HALT - Stop Execution =====
+  0x01:  # HALT
+    name: "HALT"
+    steps:
+      - HALT
+
+  # ===== LDI - Load Immediate =====
+  0x02:  # LDI A, imm
+    name: "LDI_A"
+    steps:
+      - PC_OUT | MAR_IN              # T0: PC -> MAR
+      - RAM_OUT | A_IN | PC_INC      # T1: RAM -> A, PC++
+  
+  0x03:  # LDI B, imm
+    name: "LDI_B"
+    steps:
+      - PC_OUT | MAR_IN              # T0: PC -> MAR
+      - RAM_OUT | B_IN | PC_INC      # T1: RAM -> B, PC++
+
+  # ===== LDA - Load from Address =====
+  0x04:  # LDA A, addr
+    name: "LDA_A"
+    steps:
+      - PC_OUT | MAR_IN              # T0: PC -> MAR
+      - RAM_OUT | MAR_IN | PC_INC    # T1: RAM -> MAR (address), PC++
+      - RAM_OUT | A_IN               # T2: RAM[address] -> A
+
+  0x05:  # LDA B, addr
+    name: "LDA_B"
+    steps:
+      - PC_OUT | MAR_IN              # T0: PC -> MAR
+      - RAM_OUT | MAR_IN | PC_INC    # T1: RAM -> MAR (address), PC++
+      - RAM_OUT | B_IN               # T2: RAM[address] -> B
+
+  # ===== STA - Store to Address =====
+  0x06:  # STA A, addr
+    name: "STA_A"
+    steps:
+      - PC_OUT | MAR_IN              # T0: PC -> MAR
+      - RAM_OUT | MAR_IN | PC_INC    # T1: RAM -> MAR (address), PC++
+      - A_OUT | RAM_IN               # T2: A -> RAM[address]
+
+  0x07:  # STA B, addr
+    name: "STA_B"
+    steps:
+      - PC_OUT | MAR_IN              # T0: PC -> MAR
+      - RAM_OUT | MAR_IN | PC_INC    # T1: RAM -> MAR (address), PC++
+      - B_OUT | RAM_IN               # T2: B -> RAM[address]
+
+  # ===== ADD - Add Registers =====
+  0x08:  # ADD (A = A + B)
+    name: "ADD"
+    steps:
+      - ALU_OUT | A_IN | FLAGS_IN | PC_INC  # A + B -> A, update flags
+
+  # ===== SUB - Subtract Registers =====
+  0x09:  # SUB (A = A - B)
+    name: "SUB"
+    steps:
+      - ALU_SUB | ALU_OUT | A_IN | FLAGS_IN | PC_INC  # A - B -> A, update flags
+
+  # ===== OUT - Output Register =====
+  0x0F:  # OUT A
+    name: "OUT_A"
+    steps:
+      - A_OUT | PC_INC  # Output A (handled by emulator)
+
+  0x10:  # OUT B
+    name: "OUT_B"
+    steps:
+      - B_OUT | PC_INC  # Output B
+
+  # ===== JMP - Unconditional Jump =====
+  0x0C:  # JMP addr
+    name: "JMP"
+    steps:
+      - PC_OUT | MAR_IN              # T0: PC -> MAR
+      - RAM_OUT | PC_IN              # T1: RAM -> PC (jump)
+
+  # Common fetch cycle (executed before every instruction)
+fetch_cycle:
+    - PC_OUT | MAR_IN              # T-2: PC -> MAR
+    - RAM_OUT | IR_IN | PC_INC     # T-1: RAM -> IR, PC++
+
+# Microcode ROM layout
+rom_config:
+  size: 256                  # 256 bytes total
+  instruction_width: 16      # 16-bit microcode words
+  max_steps: 8              # Maximum 8 steps per instruction
+  address_bits:
+    opcode: [0, 1, 2, 3]    # Upper 4 bits: instruction opcode
+    step: [4, 5, 6]         # Lower 3 bits: micro-step counter
